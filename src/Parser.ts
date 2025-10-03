@@ -211,9 +211,12 @@ export class Parser implements Callbacks {
     private attribname = "";
     private attribvalue = "";
     private attribs: null | { [key: string]: string } = null;
-    private readonly stack: string[] = [];
+    // Pre-allocate array for common tag depths (optimization)
+    private readonly stack: string[] = Array.from({ length: 32 });
+    private stackLength = 0;
     /** Determines whether self-closing tags are recognized. */
-    private readonly foreignContext: boolean[];
+    private readonly foreignContext: boolean[] = Array.from({ length: 16 });
+    private foreignContextLength = 0;
     private readonly cbs: Partial<Handler>;
     private readonly lowerCaseTagNames: boolean;
     private readonly lowerCaseAttributeNames: boolean;
@@ -244,7 +247,8 @@ export class Parser implements Callbacks {
             this.options,
             this,
         );
-        this.foreignContext = [!this.htmlMode];
+        this.foreignContext[0] = !this.htmlMode;
+        this.foreignContextLength = 1;
         this.cbs.onparserinit?.(this);
     }
 
@@ -293,19 +297,49 @@ export class Parser implements Callbacks {
         const impliesClose = this.htmlMode && openImpliesClose.get(name);
 
         if (impliesClose) {
-            while (this.stack.length > 0 && impliesClose.has(this.stack[0])) {
-                const element = this.stack.shift()!;
+            while (this.stackLength > 0 && impliesClose.has(this.stack[0])) {
+                const element = this.stack[0];
+                // Shift elements manually
+                for (let index = 0; index < this.stackLength - 1; index++) {
+                    this.stack[index] = this.stack[index + 1];
+                }
+                this.stackLength--;
                 this.cbs.onclosetag?.(element, true);
             }
         }
         if (!this.isVoidElement(name)) {
-            this.stack.unshift(name);
+            // Unshift manually
+            for (let index = this.stackLength; index > 0; index--) {
+                this.stack[index] = this.stack[index - 1];
+            }
+            this.stack[0] = name;
+            this.stackLength++;
 
             if (this.htmlMode) {
                 if (foreignContextElements.has(name)) {
-                    this.foreignContext.unshift(true);
+                    // Unshift manually
+                    for (
+                        let index = this.foreignContextLength;
+                        index > 0;
+                        index--
+                    ) {
+                        this.foreignContext[index] =
+                            this.foreignContext[index - 1];
+                    }
+                    this.foreignContext[0] = true;
+                    this.foreignContextLength++;
                 } else if (htmlIntegrationElements.has(name)) {
-                    this.foreignContext.unshift(false);
+                    // Unshift manually
+                    for (
+                        let index = this.foreignContextLength;
+                        index > 0;
+                        index--
+                    ) {
+                        this.foreignContext[index] =
+                            this.foreignContext[index - 1];
+                    }
+                    this.foreignContext[0] = false;
+                    this.foreignContextLength++;
                 }
             }
         }
@@ -351,14 +385,38 @@ export class Parser implements Callbacks {
             (foreignContextElements.has(name) ||
                 htmlIntegrationElements.has(name))
         ) {
-            this.foreignContext.shift();
+            // Shift manually
+            for (
+                let index = 0;
+                index < this.foreignContextLength - 1;
+                index++
+            ) {
+                this.foreignContext[index] = this.foreignContext[index + 1];
+            }
+            this.foreignContextLength--;
         }
 
         if (!this.isVoidElement(name)) {
-            const pos = this.stack.indexOf(name);
+            // Find position manually
+            let pos = -1;
+            for (let index = 0; index < this.stackLength; index++) {
+                if (this.stack[index] === name) {
+                    pos = index;
+                    break;
+                }
+            }
             if (pos !== -1) {
                 for (let index = 0; index <= pos; index++) {
-                    const element = this.stack.shift()!;
+                    const element = this.stack[0];
+                    // Shift manually
+                    for (
+                        let shiftIndex = 0;
+                        shiftIndex < this.stackLength - 1;
+                        shiftIndex++
+                    ) {
+                        this.stack[shiftIndex] = this.stack[shiftIndex + 1];
+                    }
+                    this.stackLength--;
                     // We know the stack has sufficient elements.
                     this.cbs.onclosetag?.(element, index !== pos);
                 }
@@ -400,7 +458,11 @@ export class Parser implements Callbacks {
         if (this.stack[0] === name) {
             // If the opening tag isn't implied, the closing tag has to be implied.
             this.cbs.onclosetag?.(name, !isOpenImplied);
-            this.stack.shift();
+            // Shift manually
+            for (let index = 0; index < this.stackLength - 1; index++) {
+                this.stack[index] = this.stack[index + 1];
+            }
+            this.stackLength--;
         }
     }
 
@@ -522,7 +584,7 @@ export class Parser implements Callbacks {
         if (this.cbs.onclosetag) {
             // Set the end index for all remaining tags
             this.endIndex = this.startIndex;
-            for (let index = 0; index < this.stack.length; index++) {
+            for (let index = 0; index < this.stackLength; index++) {
                 this.cbs.onclosetag(this.stack[index], true);
             }
         }
@@ -538,13 +600,13 @@ export class Parser implements Callbacks {
         this.tagname = "";
         this.attribname = "";
         this.attribs = null;
-        this.stack.length = 0;
+        this.stackLength = 0;
         this.startIndex = 0;
         this.endIndex = 0;
         this.cbs.onparserinit?.(this);
         this.buffers.length = 0;
-        this.foreignContext.length = 0;
-        this.foreignContext.unshift(!this.htmlMode);
+        this.foreignContext[0] = !this.htmlMode;
+        this.foreignContextLength = 1;
         this.bufferOffset = 0;
         this.writeIndex = 0;
         this.ended = false;

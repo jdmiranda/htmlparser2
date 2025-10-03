@@ -76,25 +76,33 @@ const enum State {
     InEntity,
 }
 
+// Whitespace lookup table for faster checking (256 bytes)
+const WHITESPACE_TABLE = new Uint8Array(256);
+WHITESPACE_TABLE[CharCodes.Space] = 1;
+WHITESPACE_TABLE[CharCodes.NewLine] = 1;
+WHITESPACE_TABLE[CharCodes.Tab] = 1;
+WHITESPACE_TABLE[CharCodes.FormFeed] = 1;
+WHITESPACE_TABLE[CharCodes.CarriageReturn] = 1;
+
 function isWhitespace(c: number): boolean {
-    return (
-        c === CharCodes.Space ||
-        c === CharCodes.NewLine ||
-        c === CharCodes.Tab ||
-        c === CharCodes.FormFeed ||
-        c === CharCodes.CarriageReturn
-    );
+    return c < 256 && WHITESPACE_TABLE[c] === 1;
 }
 
 function isEndOfTagSection(c: number): boolean {
     return c === CharCodes.Slash || c === CharCodes.Gt || isWhitespace(c);
 }
 
+// ASCII alpha lookup table for faster checking (256 bytes)
+const ASCII_ALPHA_TABLE = new Uint8Array(256);
+for (let index = CharCodes.LowerA; index <= CharCodes.LowerZ; index++) {
+    ASCII_ALPHA_TABLE[index] = 1;
+}
+for (let index = CharCodes.UpperA; index <= CharCodes.UpperZ; index++) {
+    ASCII_ALPHA_TABLE[index] = 1;
+}
+
 function isASCIIAlpha(c: number): boolean {
-    return (
-        (c >= CharCodes.LowerA && c <= CharCodes.LowerZ) ||
-        (c >= CharCodes.UpperA && c <= CharCodes.UpperZ)
-    );
+    return c < 256 && ASCII_ALPHA_TABLE[c] === 1;
 }
 
 export enum QuoteType {
